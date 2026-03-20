@@ -1,1 +1,38 @@
 data/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments and local Python setup
+.venv/
+venv/
+env/
+ENV/
+.python-version
+langchain-env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+
+# Temporary/incomplete downloads
+*.crdownload
