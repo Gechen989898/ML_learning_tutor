@@ -1,4 +1,6 @@
+# data and storage files
 data/
+storage/faiss_index/
 
 # Python cache and build artifacts
 __pycache__/
