@@ -1,0 +1,14 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+env/
+ENV/
+.ipynb_checkpoints/
+notebook.ipynb
+.env
+storage/faiss_index/
