@@ -1,3 +1,5 @@
+"""Chain assembly for grounded answer generation over retrieved chunks."""
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
@@ -49,10 +51,29 @@ prompt = ChatPromptTemplate.from_messages(
 
 
 def get_llm():
+    """Create the answer-generation model for the RAG chain.
+
+    Args:
+        None
+
+    Returns:
+        ChatOpenAI: Chat model used to generate grounded answers.
+    """
     return ChatOpenAI(model="gpt-4o-mini")
 
 
 def format_docs(docs):
+    """Format retrieved documents into prompt-ready context.
+
+    Source labels are preserved in the context block so the generation model can
+    cite evidence explicitly in the final answer.
+
+    Args:
+        docs: Documents selected by the retrieval pipeline.
+
+    Returns:
+        str: Concatenated context string with source labels.
+    """
     return "\n\n".join(
         f"Source:[{doc.metadata.get('metadata_label', 'Unknown source')}]\n Content:{doc.page_content}"
         for doc in docs
@@ -60,6 +81,14 @@ def format_docs(docs):
 
 
 def format_chat_history(chat_history):
+    """Render prior turns into a plain-text transcript.
+
+    Args:
+        chat_history: Prior user and assistant turns.
+
+    Returns:
+        str: Formatted chat transcript for prompt injection.
+    """
     if not chat_history:
         return "No prior conversation."
 
@@ -72,6 +101,25 @@ def format_chat_history(chat_history):
 
 
 def build_rag_chain(vector_store):
+    """Build the end-to-end retrieval-augmented generation chain.
+
+    The prompt is intentionally restrictive: it tells the model to answer only
+    from retrieved context, cite its evidence, and admit when the context is
+    insufficient. This is the main hallucination mitigation strategy in the
+    generation layer.
+
+    Args:
+        vector_store: FAISS vector store backing retrieval.
+
+    Returns:
+        Runnable: LangChain runnable that retrieves context and generates an answer.
+
+    Notes:
+        Strict grounding improves factual reliability, but it can make the
+        system more conservative when retrieval misses relevant context.
+    """
+    # Retrieval is invoked inside the chain so the latest query and chat
+    # history stay synchronized with the final generation request.
     retriever = RunnableLambda(
         lambda data: multi_stage_retrieval(
             data["question"],

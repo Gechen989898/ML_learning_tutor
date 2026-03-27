@@ -1,3 +1,5 @@
+"""CLI entrypoint for querying the textbook-backed RAG system."""
+
 import os
 
 from dotenv import load_dotenv

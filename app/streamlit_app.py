@@ -1,18 +1,19 @@
-from dotenv import load_dotenv
-load_dotenv()
+"""Streamlit UI for the textbook-backed RAG tutor."""
 
 import os
 
 import streamlit as st
+from dotenv import load_dotenv
 
 from learning_tutor.rag_chain import build_rag_chain
 from learning_tutor.retrieval_pipeline import multi_stage_retrieval
 from learning_tutor.services.indexing import load_or_build_vector_store
 
+
+load_dotenv()
+
 DEFAULT_TITLE = "Your learning tutor is here ! "
-DEFAULT_GREETING = (
-    "Ask me anything about the book."
-)
+DEFAULT_GREETING = "Ask me anything about the book."
 INDEX_STATUS_KEY = "index_status"
 DEFAULT_FILE_PATH = os.getenv(
     "PDF_SOURCE_PATH",
@@ -22,20 +23,55 @@ DEFAULT_INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "storage/faiss_index")
 
 
 def has_openai_api_key():
+    """Check whether the application can call OpenAI services.
+
+    Args:
+        None
+
+    Returns:
+        bool: ``True`` when the API key is available in the environment.
+    """
     return bool(os.getenv("OPENAI_API_KEY"))
+
 
 @st.cache_resource(show_spinner=False)
 def get_vector_store(file_path, index_dir):
+    """Load or build the cached vector store for the web app.
+
+    Args:
+        file_path: Path to the source PDF.
+        index_dir: Directory where the FAISS index is stored.
+
+    Returns:
+        tuple: Pair of ``(vector_store, status_message)``.
+    """
     return load_or_build_vector_store(file_path, index_dir)
 
 
 @st.cache_resource(show_spinner=False)
 def get_chain(file_path, index_dir):
+    """Build the cached RAG chain for the current app configuration.
+
+    Args:
+        file_path: Path to the source PDF.
+        index_dir: Directory where the FAISS index is stored.
+
+    Returns:
+        Runnable: Answer-generation chain backed by retrieval.
+    """
     vector_store, _ = get_vector_store(file_path, index_dir)
     return build_rag_chain(vector_store)
 
 
 def format_sources(docs):
+    """Extract unique source labels for UI display.
+
+    Args:
+        docs: Retrieved documents returned by the retrieval pipeline.
+
+    Returns:
+        list[str]: Deduplicated source labels in original order.
+    """
     labels = []
     for doc in docs:
         label = doc.metadata.get("metadata_label", "Unknown source")
@@ -45,6 +81,14 @@ def format_sources(docs):
 
 
 def get_chat_history(messages):
+    """Filter session messages down to conversational turns.
+
+    Args:
+        messages: Full Streamlit session message list.
+
+    Returns:
+        list[dict]: User and assistant messages only.
+    """
     return [message for message in messages if message["role"] in {"user", "assistant"}]
 
 
@@ -96,6 +140,8 @@ if user_query:
             vector_store, _ = get_vector_store(file_path, index_dir)
             chain = get_chain(file_path, index_dir)
             chat_history = get_chat_history(st.session_state.messages[:-1])
+            # Sources are fetched explicitly for display so the UI can expose
+            # provenance independent of the final answer wording.
             docs = multi_stage_retrieval(
                 user_query,
                 vector_store=vector_store,

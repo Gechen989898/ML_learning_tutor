@@ -1,8 +1,10 @@
+"""CLI entrypoint for creating or loading the FAISS index."""
+
+import os
+
 from dotenv import load_dotenv
 
 from learning_tutor.services.indexing import load_or_build_vector_store
-
-import os
 
 
 load_dotenv()

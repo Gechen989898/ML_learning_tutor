@@ -1,3 +1,7 @@
+"""Data loading and chunk preparation for the textbook retrieval pipeline."""
+
+import re
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -27,12 +31,43 @@ CHAPTER_STARTS = [
 
 
 def load_data(path):
+    """Load the source PDF as page-level documents.
+
+    This is the entry point for the retrieval data pipeline. Downstream stages
+    preserve page metadata so generated answers can cite the original source.
+
+    Args:
+        path: Path to the textbook PDF.
+
+    Returns:
+        list: Page-level LangChain documents produced by the PDF loader.
+    """
     loader = PyPDFLoader(path)
     return loader.load()
 
 
 def split_chunk(document):
+    """Attach chapter metadata to each page before chunking.
+
+    Chapter labels provide a stable, human-readable source identifier for both
+    retrieval inspection and final answer citations.
+
+    Args:
+        document: Page-level documents returned by :func:`load_data`.
+
+    Returns:
+        list: Documents enriched with chapter and display metadata.
+    """
+
     def get_chapter(page_number):
+        """Resolve the chapter title for a PDF page index.
+
+        Args:
+            page_number: Zero-based page index from the PDF loader.
+
+        Returns:
+            str: Chapter title that contains the page.
+        """
         chapter = "Front Matter"
         for start_page, title in CHAPTER_STARTS:
             if page_number >= start_page:
@@ -53,13 +88,49 @@ def split_chunk(document):
 
 
 def clean_text(text):
-    return text.encode("utf-8", "ignore").decode("utf-8")
+    """Normalize PDF extraction artifacts before embedding.
+
+    Collapsing whitespace reduces embedding noise caused by PDF line wrapping
+    and inconsistent spacing, while preserving the semantic content needed for
+    retrieval.
+
+    Args:
+        text: Raw text extracted from a PDF page or chunk.
+
+    Returns:
+        str: Cleaned text with normalized whitespace.
+    """
+    cleaned_text = text.encode("utf-8", "ignore").decode("utf-8")
+    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+    return cleaned_text
 
 
 def split_clean_chunks(filtered_docs):
+    """Split textbook pages into retrieval-friendly chunks.
+
+    The chunking strategy balances semantic fidelity and retrieval efficiency.
+    A chunk size of 800 characters is small enough to keep each embedding
+    focused on a narrow topic, while 150 characters of overlap preserves
+    context when an explanation spans a chunk boundary. The ordered separators
+    prefer paragraph, line, and sentence boundaries before falling back to
+    whitespace and raw character splits.
+
+    Args:
+        filtered_docs: Page-level documents with chapter metadata attached.
+
+    Returns:
+        list: Cleaned chunk documents ready for embedding.
+
+    Notes:
+        Smaller chunks usually improve retrieval precision, but they increase
+        index size and may reduce recall if overlap is too low.
+    """
+    # Prefer natural text boundaries so chunk embeddings map more cleanly to a
+    # single concept or explanation.
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
+        chunk_size=800,
+        chunk_overlap=150,
+        separators=["\n\n", "\n", ". ", " ", ""],
         add_start_index=True,
     )
     chunks = text_splitter.split_documents(filtered_docs)
