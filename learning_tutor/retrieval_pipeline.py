@@ -6,6 +6,9 @@ import re
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from learning_tutor.azure_search import search_hybrid_semantic
+from learning_tutor.embedding import get_embeddings
+
 
 rewrite_prompt = ChatPromptTemplate.from_template(
     """
@@ -236,3 +239,43 @@ def multi_stage_retrieval(
         vector_store=vector_store,
     )
     return rerank_docs(candidates, standalone_query, top_k=top_k)
+
+
+def multi_stage_azure_retrieval(
+    query,
+    search_client,
+    chat_history=None,
+    candidate_k=20,
+    top_k=5,
+    use_semantic=True,
+    semantic_config_name=None,
+):
+    """Run query rewriting plus Azure AI Search hybrid/semantic retrieval.
+
+    Azure AI Search replaces the FAISS similarity search stage. If semantic
+    ranking is enabled on the Azure Search index, the separate LLM reranker is
+    intentionally skipped to avoid duplicate reranking cost and latency.
+
+    Args:
+        query: User question to answer.
+        search_client: Azure AI Search document client.
+        chat_history: Optional prior conversation turns.
+        candidate_k: Number of vector nearest neighbors to retrieve.
+        top_k: Number of search results to return.
+        use_semantic: Whether to enable Azure semantic ranking.
+        semantic_config_name: Optional semantic configuration name.
+
+    Returns:
+        list: Documents selected for the answer-generation stage.
+    """
+    standalone_query = rewrite_query(query, chat_history=chat_history)
+    embeddings = get_embeddings()
+    return search_hybrid_semantic(
+        query=standalone_query,
+        embeddings=embeddings,
+        search_client=search_client,
+        k_nearest_neighbors=candidate_k,
+        top=top_k,
+        use_semantic=use_semantic,
+        semantic_config_name=semantic_config_name,
+    )

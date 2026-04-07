@@ -5,7 +5,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 
-from learning_tutor.retrieval_pipeline import multi_stage_retrieval
+from learning_tutor.retrieval_pipeline import (
+    multi_stage_azure_retrieval,
+    multi_stage_retrieval,
+)
 
 
 prompt = ChatPromptTemplate.from_messages(
@@ -13,22 +16,21 @@ prompt = ChatPromptTemplate.from_messages(
         (
             "system",
             """
-            You are a machine learning expert and tutor.
+            You are a helpful tutor answering questions about a textbook.
+            Use only the provided context to answer the question.
+            Do not use outside knowledge.
 
-            Your task is to answer the question using ONLY the provided context.
-            Use the conversation history only to resolve references such as "it",
-            "that method", or "the previous chapter".
+            Citation rules:
+            - Cite only the sources that directly support your answer.
+            - Do not cite every source automatically.
+            - Use the exact source label shown in the context.
+            - Put citations at the end of the sentence or paragraph they support.
+            - If multiple sources support the same point, cite all relevant sources.
 
-            Guidelines:
-            - Use ONLY the information from the context
-            - Do NOT use your own knowledge
-            - If the answer is not in the context, say: "I don't know based on the provided document"
-            - Explain concepts simply
-            - Provide examples only if they are supported by the context
-            - ALWAYS cite your sources using this format:
-              (Source: Chapter X | page Y)
-            - If multiple sources are used, cite all of them
-            - Be clear and concise
+            If the context does not contain enough information to answer, say:
+            "I don't know based on the provided document."
+
+            Keep the explanation clear, simple, and concise.
             """
         ),
         (
@@ -75,7 +77,8 @@ def format_docs(docs):
         str: Concatenated context string with source labels.
     """
     return "\n\n".join(
-        f"Source:[{doc.metadata.get('metadata_label', 'Unknown source')}]\n Content:{doc.page_content}"
+        f"Source: {doc.metadata.get('metadata_label', 'Unknown source')}\n"
+        f"Content: {doc.page_content}"
         for doc in docs
     )
 
@@ -125,6 +128,51 @@ def build_rag_chain(vector_store):
             data["question"],
             vector_store=vector_store,
             chat_history=data.get("chat_history", []),
+        )
+    )
+
+    return (
+        {
+            "context": retriever | format_docs,
+            "question": RunnableLambda(lambda data: data["question"]),
+            "chat_history": RunnableLambda(
+                lambda data: format_chat_history(data.get("chat_history", []))
+            ),
+        }
+        | prompt
+        | get_llm()
+        | StrOutputParser()
+    )
+
+
+def build_azure_rag_chain(
+    search_client,
+    candidate_k=20,
+    top_k=5,
+    use_semantic=True,
+    semantic_config_name=None,
+):
+    """Build a RAG chain backed by Azure AI Search hybrid/semantic retrieval.
+
+    Args:
+        search_client: Azure AI Search document client.
+        candidate_k: Number of vector nearest neighbors to retrieve.
+        top_k: Number of search results to include in the answer context.
+        use_semantic: Whether to enable Azure semantic ranking.
+        semantic_config_name: Optional semantic configuration name.
+
+    Returns:
+        Runnable: LangChain runnable that retrieves context and generates an answer.
+    """
+    retriever = RunnableLambda(
+        lambda data: multi_stage_azure_retrieval(
+            data["question"],
+            search_client=search_client,
+            chat_history=data.get("chat_history", []),
+            candidate_k=candidate_k,
+            top_k=top_k,
+            use_semantic=use_semantic,
+            semantic_config_name=semantic_config_name,
         )
     )
 

@@ -5,9 +5,9 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-from learning_tutor.rag_chain import build_rag_chain
-from learning_tutor.retrieval_pipeline import multi_stage_retrieval
-from learning_tutor.services.indexing import load_or_build_vector_store
+from learning_tutor.azure_search import get_search_client
+from learning_tutor.rag_chain import build_azure_rag_chain
+from learning_tutor.retrieval_pipeline import multi_stage_azure_retrieval
 
 
 load_dotenv()
@@ -15,52 +15,50 @@ load_dotenv()
 DEFAULT_TITLE = "Your learning tutor is here ! "
 DEFAULT_GREETING = "Ask me anything about the book."
 INDEX_STATUS_KEY = "index_status"
-DEFAULT_FILE_PATH = os.getenv(
-    "PDF_SOURCE_PATH",
-    "data/Hands_On_Machine_Learning_with_Scikit_Learn_and_TensorFlow.pdf",
-)
-DEFAULT_INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "storage/faiss_index")
 
 
-def has_openai_api_key():
-    """Check whether the application can call OpenAI services.
+def has_required_settings():
+    """Check whether the application has required cloud settings.
 
     Args:
         None
 
     Returns:
-        bool: ``True`` when the API key is available in the environment.
+        bool: ``True`` when required environment variables are available.
     """
-    return bool(os.getenv("OPENAI_API_KEY"))
+    required_settings = [
+        "OPENAI_API_KEY",
+        "AZURE_SEARCH_ENDPOINT",
+        "AZURE_SEARCH_API_KEY",
+        "AZURE_SEARCH_INDEX_NAME",
+    ]
+    return all(os.getenv(setting) for setting in required_settings)
 
 
 @st.cache_resource(show_spinner=False)
-def get_vector_store(file_path, index_dir):
-    """Load or build the cached vector store for the web app.
+def get_cached_search_client():
+    """Create the cached Azure AI Search client for the web app.
 
     Args:
-        file_path: Path to the source PDF.
-        index_dir: Directory where the FAISS index is stored.
+        None
 
     Returns:
-        tuple: Pair of ``(vector_store, status_message)``.
+        SearchClient: Azure AI Search document client.
     """
-    return load_or_build_vector_store(file_path, index_dir)
+    return get_search_client()
 
 
 @st.cache_resource(show_spinner=False)
-def get_chain(file_path, index_dir):
+def get_chain():
     """Build the cached RAG chain for the current app configuration.
 
     Args:
-        file_path: Path to the source PDF.
-        index_dir: Directory where the FAISS index is stored.
+        None
 
     Returns:
         Runnable: Answer-generation chain backed by retrieval.
     """
-    vector_store, _ = get_vector_store(file_path, index_dir)
-    return build_rag_chain(vector_store)
+    return build_azure_rag_chain(get_cached_search_client())
 
 
 def format_sources(docs):
@@ -96,19 +94,16 @@ st.set_page_config(page_title=DEFAULT_TITLE, layout="wide")
 st.title(DEFAULT_TITLE)
 st.caption("Chat with your book-backed RAG pipeline.")
 
-file_path = DEFAULT_FILE_PATH
-index_dir = DEFAULT_INDEX_DIR
-
-if not has_openai_api_key():
+if not has_required_settings():
     st.error(
-        "Missing `OPENAI_API_KEY`. Set it in your environment or `.env` file before starting the app."
+        "Missing required settings. Set `OPENAI_API_KEY`, `AZURE_SEARCH_ENDPOINT`, "
+        "`AZURE_SEARCH_API_KEY`, and `AZURE_SEARCH_INDEX_NAME` before starting the app."
     )
     st.stop()
 
 if INDEX_STATUS_KEY not in st.session_state:
-    with st.spinner("Preparing the knowledge base..."):
-        _, index_status = get_vector_store(file_path, index_dir)
-    st.session_state[INDEX_STATUS_KEY] = index_status
+    get_cached_search_client()
+    st.session_state[INDEX_STATUS_KEY] = "Connected to Azure AI Search."
 
 st.info(st.session_state[INDEX_STATUS_KEY])
 
@@ -137,14 +132,14 @@ if user_query:
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            vector_store, _ = get_vector_store(file_path, index_dir)
-            chain = get_chain(file_path, index_dir)
+            search_client = get_cached_search_client()
+            chain = get_chain()
             chat_history = get_chat_history(st.session_state.messages[:-1])
             # Sources are fetched explicitly for display so the UI can expose
             # provenance independent of the final answer wording.
-            docs = multi_stage_retrieval(
+            docs = multi_stage_azure_retrieval(
                 user_query,
-                vector_store=vector_store,
+                search_client=search_client,
                 chat_history=chat_history,
             )
             response = chain.invoke(
