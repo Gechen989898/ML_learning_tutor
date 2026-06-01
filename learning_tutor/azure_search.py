@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 from pathlib import Path
 
 from azure.core.credentials import AzureKeyCredential
@@ -25,11 +26,15 @@ from azure.search.documents.indexes.models import (
 from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient
 from langchain_core.documents import Document
+from openai import RateLimitError
 
 
 DEFAULT_VECTOR_FIELD = "content_vector"
 DEFAULT_SEMANTIC_CONFIG = "rag_ml_semantic_config"
 DEFAULT_AZURE_DOWNLOAD_PATH = "azure_data/ml_text_book.pdf"
+DEFAULT_EMBEDDING_BATCH_SIZE = 16
+DEFAULT_EMBEDDING_RETRY_SECONDS = 65
+DEFAULT_EMBEDDING_MAX_RETRIES = 8
 
 
 def _get_env(name, default=None):
@@ -42,6 +47,16 @@ def _get_env(name, default=None):
         if key.strip() == name:
             return candidate.strip()
     return default
+
+
+def _get_int_env(name, default):
+    value = _get_env(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"`{name}` must be an integer.") from exc
 
 
 def get_search_config():
@@ -152,7 +167,7 @@ def create_or_update_search_index(
         SearchableField(name="content", type=SearchFieldDataType.String),
         SearchableField(name="chapter", type=SearchFieldDataType.String),
         SimpleField(name="page", type=SearchFieldDataType.Int32),
-        SearchableField(
+        SimpleField(
             name="metadata_label",
             type=SearchFieldDataType.String,
             filterable=True,
@@ -160,7 +175,6 @@ def create_or_update_search_index(
         SimpleField(
             name="source_blob",
             type=SearchFieldDataType.String,
-            filterable=True,
         ),
         SearchField(
             name=DEFAULT_VECTOR_FIELD,
@@ -187,7 +201,6 @@ def create_or_update_search_index(
                     content_fields=[SemanticField(field_name="content")],
                     keywords_fields=[
                         SemanticField(field_name="chapter"),
-                        SemanticField(field_name="metadata_label"),
                     ],
                 ),
             )
@@ -210,9 +223,70 @@ def _make_document_id(source_blob, index):
     return f"{safe_source}-{index:06d}"
 
 
-def chunks_to_search_documents(chunks, embeddings, source_blob):
+def _retry_after_seconds(error, default_retry_seconds):
+    """Extract a retry delay from an Azure OpenAI rate-limit response."""
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    retry_after = headers.get("retry-after") or headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(int(float(retry_after)), default_retry_seconds)
+        except ValueError:
+            return default_retry_seconds
+    return default_retry_seconds
+
+
+def embed_texts_with_retry(
+    embeddings,
+    texts,
+    batch_size=None,
+    retry_seconds=None,
+    max_retries=None,
+):
+    """Embed texts in small batches and wait through Azure OpenAI 429s."""
+    batch_size = batch_size or _get_int_env(
+        "AZURE_OPENAI_EMBEDDING_BATCH_SIZE",
+        DEFAULT_EMBEDDING_BATCH_SIZE,
+    )
+    retry_seconds = retry_seconds or _get_int_env(
+        "AZURE_OPENAI_EMBEDDING_RETRY_SECONDS",
+        DEFAULT_EMBEDDING_RETRY_SECONDS,
+    )
+    max_retries = max_retries or _get_int_env(
+        "AZURE_OPENAI_EMBEDDING_MAX_RETRIES",
+        DEFAULT_EMBEDDING_MAX_RETRIES,
+    )
+
+    vectors = []
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start : start + batch_size]
+        attempt = 0
+        while True:
+            try:
+                vectors.extend(embeddings.embed_documents(batch))
+                break
+            except RateLimitError as error:
+                attempt += 1
+                if attempt > max_retries:
+                    raise
+                wait_seconds = _retry_after_seconds(error, retry_seconds)
+                print(
+                    "Azure OpenAI embedding rate limit reached; "
+                    f"waiting {wait_seconds} seconds before retry "
+                    f"{attempt}/{max_retries}."
+                )
+                time.sleep(wait_seconds)
+
+    return vectors
+
+
+def chunks_to_search_documents(chunks, embeddings, source_blob, embedding_batch_size=None):
     """Convert LangChain chunks into Azure AI Search upload documents."""
-    vectors = embeddings.embed_documents([chunk.page_content for chunk in chunks])
+    vectors = embed_texts_with_retry(
+        embeddings=embeddings,
+        texts=[chunk.page_content for chunk in chunks],
+        batch_size=embedding_batch_size,
+    )
     documents = []
     for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
         documents.append(

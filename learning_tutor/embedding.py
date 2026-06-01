@@ -3,10 +3,14 @@
 from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
+
+from learning_tutor.azure_openai import (
+    DEFAULT_EMBEDDING_DEPLOYMENT,
+    get_azure_openai_embeddings,
+)
 
 
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_EMBEDDING_MODEL = DEFAULT_EMBEDDING_DEPLOYMENT
 
 
 def get_embeddings(model=DEFAULT_EMBEDDING_MODEL):
@@ -20,9 +24,9 @@ def get_embeddings(model=DEFAULT_EMBEDDING_MODEL):
         model: Name of the OpenAI embedding model.
 
     Returns:
-        OpenAIEmbeddings: Configured embedding client.
+        AzureOpenAIEmbeddings: Configured embedding client.
     """
-    return OpenAIEmbeddings(model=model)
+    return get_azure_openai_embeddings(model=model)
 
 
 def embedding_vector(chunks, model=DEFAULT_EMBEDDING_MODEL):

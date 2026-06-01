@@ -1,12 +1,11 @@
 """Streamlit UI for the textbook-backed RAG tutor."""
 
-import os
-
 import streamlit as st
 from dotenv import load_dotenv
 
-from learning_tutor.azure_search import get_search_client
-from learning_tutor.rag_chain import build_azure_rag_chain
+from learning_tutor.azure_openai import get_azure_openai_config
+from learning_tutor.azure_search import get_search_client, get_search_config
+from learning_tutor.rag_chain import build_answer_chain
 from learning_tutor.retrieval_pipeline import multi_stage_azure_retrieval
 
 
@@ -26,13 +25,12 @@ def has_required_settings():
     Returns:
         bool: ``True`` when required environment variables are available.
     """
-    required_settings = [
-        "OPENAI_API_KEY",
-        "AZURE_SEARCH_ENDPOINT",
-        "AZURE_SEARCH_API_KEY",
-        "AZURE_SEARCH_INDEX_NAME",
-    ]
-    return all(os.getenv(setting) for setting in required_settings)
+    try:
+        get_azure_openai_config(require_chat=True)
+        get_search_config()
+    except ValueError as error:
+        return False, str(error)
+    return True, ""
 
 
 @st.cache_resource(show_spinner=False)
@@ -58,7 +56,7 @@ def get_chain():
     Returns:
         Runnable: Answer-generation chain backed by retrieval.
     """
-    return build_azure_rag_chain(get_cached_search_client())
+    return build_answer_chain()
 
 
 def format_sources(docs):
@@ -94,10 +92,11 @@ st.set_page_config(page_title=DEFAULT_TITLE, layout="wide")
 st.title(DEFAULT_TITLE)
 st.caption("Chat with your book-backed RAG pipeline.")
 
-if not has_required_settings():
+settings_ok, settings_error = has_required_settings()
+if not settings_ok:
     st.error(
-        "Missing required settings. Set `OPENAI_API_KEY`, `AZURE_SEARCH_ENDPOINT`, "
-        "`AZURE_SEARCH_API_KEY`, and `AZURE_SEARCH_INDEX_NAME` before starting the app."
+        "Missing required settings. Set Azure OpenAI and Azure AI Search "
+        f"environment variables before starting the app. {settings_error}"
     )
     st.stop()
 
@@ -146,6 +145,7 @@ if user_query:
                 {
                     "question": user_query,
                     "chat_history": chat_history,
+                    "docs": docs,
                 }
             )
             sources = format_sources(docs)

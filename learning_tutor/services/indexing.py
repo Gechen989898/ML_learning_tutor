@@ -78,6 +78,8 @@ def build_azure_search_index_from_blob(local_path=None):
     documents = load_data(local_path)
     filtered_docs = split_chunk(documents)
     chunks = split_clean_chunks(filtered_docs)
+    if not chunks:
+        raise ValueError("No chunks were produced from the downloaded source document.")
 
     embeddings = get_embeddings()
     vector_dimensions = len(embeddings.embed_query(chunks[0].page_content))

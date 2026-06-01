@@ -2,7 +2,7 @@
 
 Learning Tutor is a textbook-backed retrieval-augmented generation (RAG) app for asking grounded questions about *Hands-On Machine Learning with Scikit-Learn and TensorFlow*.
 
-The project loads a source PDF, prepares clean retrieval chunks, embeds them with OpenAI embeddings, indexes them in Azure AI Search, and serves answers through a Streamlit chat UI. It also includes local FAISS helpers for development workflows.
+The project downloads a source PDF from Azure Blob Storage, extracts layout-aware text with Azure Document Intelligence, embeds clean retrieval chunks with Azure OpenAI, indexes them in Azure AI Search, and serves answers through a Streamlit chat UI. It also includes local FAISS helpers for development workflows.
 
 ## Why It Is Useful
 
@@ -16,8 +16,8 @@ The project loads a source PDF, prepares clean retrieval chunks, embeds them wit
 ## How It Works
 
 1. [`scripts/build_index.py`](scripts/build_index.py) downloads the configured PDF from Azure Blob Storage.
-2. [`learning_tutor/data_pipeline.py`](learning_tutor/data_pipeline.py) loads pages, attaches chapter/page metadata, cleans text, and splits pages into chunks.
-3. [`learning_tutor/embedding.py`](learning_tutor/embedding.py) creates OpenAI embeddings with `text-embedding-3-small`.
+2. [`learning_tutor/data_pipeline.py`](learning_tutor/data_pipeline.py) analyzes the downloaded PDF with Azure Document Intelligence, preserves chapter/page metadata, cleans text, and splits pages into chunks.
+3. [`learning_tutor/embedding.py`](learning_tutor/embedding.py) creates Azure OpenAI embeddings.
 4. [`learning_tutor/azure_search.py`](learning_tutor/azure_search.py) creates or updates an Azure AI Search index with vector and semantic search configuration.
 5. [`learning_tutor/retrieval_pipeline.py`](learning_tutor/retrieval_pipeline.py) rewrites conversational questions and retrieves ranked context.
 6. [`learning_tutor/rag_chain.py`](learning_tutor/rag_chain.py) builds the LangChain answer chain and applies citation-focused prompt rules.
@@ -27,14 +27,15 @@ The project loads a source PDF, prepares clean retrieval chunks, embeds them wit
 
 - [Python 3.12](https://www.python.org/)
 - [Streamlit](https://streamlit.io/) for the web chat UI
-- [LangChain](https://docs.langchain.com/) for prompts, runnables, document objects, and OpenAI integrations
-- [OpenAI](https://platform.openai.com/docs/) for chat completions and embeddings
-- [`text-embedding-3-small`](https://platform.openai.com/docs/models/text-embedding-3-small) as the default embedding model
+- [LangChain](https://docs.langchain.com/) for prompts, runnables, document objects, and Azure OpenAI integrations
+- [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/) for chat completions and embeddings
+- [`text-embedding-3-small`](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models) as the default embedding deployment
 - [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/) for production retrieval
 - [Azure Blob Storage](https://learn.microsoft.com/en-us/azure/storage/blobs/) for the source PDF
+- [Azure AI Document Intelligence](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/) for layout-aware PDF extraction
 - [Azure Identity](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme) for Blob Storage authentication
 - [FAISS](https://github.com/facebookresearch/faiss) for local vector store support
-- [pypdf](https://pypdf.readthedocs.io/) through LangChain's PDF loader
+- [pypdf](https://pypdf.readthedocs.io/) through LangChain's PDF loader for fallback local loading helpers
 - [python-dotenv](https://pypi.org/project/python-dotenv/) for local `.env` loading
 - [Docker](https://docs.docker.com/) for containerized app runtime
 
@@ -81,9 +82,10 @@ The project loads a source PDF, prepares clean retrieval chunks, embeds them wit
 ### Prerequisites
 
 - Python 3.12
-- An OpenAI API key
+- An Azure OpenAI resource with chat and embedding deployments
+- An Azure AI Document Intelligence resource
 - An Azure AI Search service and index name
-- An Azure Storage account with a PDF in Blob Storage if you want to build the Azure index from source
+- An Azure Storage account with a PDF in Blob Storage
 - Azure credentials available through `DefaultAzureCredential`, such as `az login` for local development
 
 ### Install
@@ -100,7 +102,17 @@ pip install -e .
 Create a `.env` file in the repository root.
 
 ```env
-OPENAI_API_KEY=your_openai_api_key
+AZURE_OPENAI_ENDPOINT=https://your-openai-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_CHAT_API_KEY=your_optional_separate_chat_key
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
+AZURE_OPENAI_EMBEDDING_BATCH_SIZE=16
+AZURE_OPENAI_EMBEDDING_RETRY_SECONDS=65
+AZURE_OPENAI_EMBEDDING_MAX_RETRIES=8
+AZURE_OPENAI_CHAT_DEPLOYMENT=your_chat_deployment
+AZURE_OPENAI_CHAT_MODEL=your_chat_model_name
+
 AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
 AZURE_SEARCH_API_KEY=your_azure_search_admin_or_query_key
 AZURE_SEARCH_INDEX_NAME=your_index_name
@@ -109,11 +121,14 @@ AZURE_STORAGE_ACCOUNT_URL=https://yourstorageaccount.blob.core.windows.net
 AZURE_STORAGE_CONTAINER=documents
 AZURE_STORAGE_BLOB_NAME=Hands_On_Machine_Learning_with_Scikit_Learn_and_TensorFlow.pdf
 
+AZURE_DOCUMENT_INTEL_ENDPOINT=https://your-document-intelligence-resource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTEL_KEY=your_document_intelligence_key
+
 AZURE_SEARCH_SEMANTIC_CONFIG_NAME=rag_ml_semantic_config
 AZURE_BLOB_DOWNLOAD_PATH=azure_data/ml_text_book.pdf
 ```
 
-`AZURE_SEARCH_SEMANTIC_CONFIG_NAME` and `AZURE_BLOB_DOWNLOAD_PATH` are optional. The app uses defaults when they are not set.
+`AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_CHAT_API_KEY`, `AZURE_OPENAI_CHAT_MODEL`, `AZURE_OPENAI_EMBEDDING_BATCH_SIZE`, `AZURE_OPENAI_EMBEDDING_RETRY_SECONDS`, `AZURE_OPENAI_EMBEDDING_MAX_RETRIES`, `AZURE_SEARCH_SEMANTIC_CONFIG_NAME`, and `AZURE_BLOB_DOWNLOAD_PATH` are optional. The app and indexing script use defaults where available. The embedding retry settings keep index builds within lower Azure OpenAI rate limits. The code also accepts notebook-style aliases `AZURE_OPEN_AI_ENDPOINT`, `AZURE_OPEN_AI_KEY`, `AZURE_OPEN_AI_LLM_KEY`, and `AZURE_OPEN_AI_LLM_DEPLOYMENT`.
 
 ### Build The Azure Search Index
 
@@ -164,7 +179,8 @@ The retrieval pipeline rewrites the follow-up into a standalone query before sea
 
 ## Development Notes
 
-- The Streamlit app checks for `OPENAI_API_KEY`, `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_API_KEY`, and `AZURE_SEARCH_INDEX_NAME` before startup.
+- The Streamlit app checks for Azure OpenAI and Azure AI Search settings before startup.
+- The indexing script additionally requires Azure Blob Storage and Azure Document Intelligence settings.
 - [`Dockerfile`](Dockerfile) exposes port `8002` and runs Streamlit on `0.0.0.0`.
 - [`.dockerignore`](.dockerignore) excludes `.env`, Python caches, notebook checkpoints, and `storage/faiss_index/`.
 - The local FAISS helper path is available in [`learning_tutor/services/indexing.py`](learning_tutor/services/indexing.py), but the current app entrypoint uses Azure AI Search.

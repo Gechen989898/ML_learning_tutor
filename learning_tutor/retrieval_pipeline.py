@@ -4,9 +4,9 @@ import json
 import re
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 
 from learning_tutor.azure_search import search_hybrid_semantic
+from learning_tutor.azure_openai import get_azure_chat_llm
 from learning_tutor.embedding import get_embeddings
 
 
@@ -60,9 +60,9 @@ def get_rewrite_llm():
         None
 
     Returns:
-        ChatOpenAI: Deterministic chat model for standalone query generation.
+        AzureChatOpenAI: Deterministic chat model for standalone query generation.
     """
-    return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    return get_azure_chat_llm(temperature=0)
 
 
 def get_rerank_llm():
@@ -75,9 +75,9 @@ def get_rerank_llm():
         None
 
     Returns:
-        ChatOpenAI: Deterministic chat model for document reranking.
+        AzureChatOpenAI: Deterministic chat model for document reranking.
     """
-    return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    return get_azure_chat_llm(temperature=0)
 
 
 def retrieve_candidates(query, k, vector_store):

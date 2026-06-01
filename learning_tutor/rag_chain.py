@@ -3,8 +3,8 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
-from langchain_openai import ChatOpenAI
 
+from learning_tutor.azure_openai import get_azure_chat_llm
 from learning_tutor.retrieval_pipeline import (
     multi_stage_azure_retrieval,
     multi_stage_retrieval,
@@ -59,9 +59,9 @@ def get_llm():
         None
 
     Returns:
-        ChatOpenAI: Chat model used to generate grounded answers.
+        AzureChatOpenAI: Chat model used to generate grounded answers.
     """
-    return ChatOpenAI(model="gpt-4o-mini")
+    return get_azure_chat_llm(temperature=0.1)
 
 
 def format_docs(docs):
@@ -134,6 +134,22 @@ def build_rag_chain(vector_store):
     return (
         {
             "context": retriever | format_docs,
+            "question": RunnableLambda(lambda data: data["question"]),
+            "chat_history": RunnableLambda(
+                lambda data: format_chat_history(data.get("chat_history", []))
+            ),
+        }
+        | prompt
+        | get_llm()
+        | StrOutputParser()
+    )
+
+
+def build_answer_chain():
+    """Build an answer-generation chain for already-retrieved context."""
+    return (
+        {
+            "context": RunnableLambda(lambda data: format_docs(data["docs"])),
             "question": RunnableLambda(lambda data: data["question"]),
             "chat_history": RunnableLambda(
                 lambda data: format_chat_history(data.get("chat_history", []))
