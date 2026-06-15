@@ -1,94 +1,94 @@
 # Learning Tutor
 
-Learning Tutor is a textbook-backed retrieval-augmented generation (RAG) app for asking grounded questions about *Hands-On Machine Learning with Scikit-Learn and TensorFlow*.
+Learning Tutor is a textbook-grounded retrieval-augmented generation (RAG) application for asking questions about *Hands-On Machine Learning with Scikit-Learn and TensorFlow*.
 
-The project downloads a source PDF from Azure Blob Storage, extracts layout-aware text with Azure Document Intelligence, embeds clean retrieval chunks with Azure OpenAI, indexes them in Azure AI Search, and serves answers through a Streamlit chat UI. It also includes local FAISS helpers for development workflows.
+The production path uses Azure services end to end: the source PDF is stored in Azure Blob Storage, parsed with Azure Document Intelligence, embedded with Azure OpenAI, indexed in Azure AI Search, and queried through a Streamlit chat interface or CLI. Answers are generated with a grounded LangChain RAG chain that cites retrieved textbook passages and refuses to answer when the provided context is insufficient.
 
-## Why It Is Useful
+## What It Demonstrates
 
-- Answers are grounded in retrieved textbook passages instead of free-form model knowledge.
-- Follow-up questions are rewritten into standalone retrieval queries so conversational context is easier to search.
-- Azure AI Search combines text, vector, and optional semantic retrieval for production use.
-- Source labels are preserved and shown in the Streamlit UI so users can inspect answer provenance.
-- Indexing is separated from app startup, which keeps the web process focused on serving queries.
-- Docker support makes the Streamlit app easier to run in a consistent Python 3.12 environment.
+- Production-style RAG architecture with separate ingestion, indexing, retrieval, and generation layers.
+- Layout-aware PDF extraction using Azure Document Intelligence.
+- Chunk metadata preservation for chapter, page, source blob, and citation labels.
+- Hybrid Azure AI Search retrieval with vector search, keyword search, and optional semantic ranking.
+- Conversational query rewriting for follow-up questions.
+- Grounded answer generation with citation rules.
+- Streamlit UI, CLI query path, Docker runtime, Azure bootstrap scripts, and unit tests.
 
-## How It Works
+## Architecture
 
-1. [`scripts/build_index.py`](scripts/build_index.py) downloads the configured PDF from Azure Blob Storage.
-2. [`learning_tutor/data_pipeline.py`](learning_tutor/data_pipeline.py) analyzes the downloaded PDF with Azure Document Intelligence, preserves chapter/page metadata, cleans text, and splits pages into chunks.
-3. [`learning_tutor/embedding.py`](learning_tutor/embedding.py) creates Azure OpenAI embeddings.
-4. [`learning_tutor/azure_search.py`](learning_tutor/azure_search.py) creates or updates an Azure AI Search index with vector and semantic search configuration.
-5. [`learning_tutor/retrieval_pipeline.py`](learning_tutor/retrieval_pipeline.py) rewrites conversational questions and retrieves ranked context.
-6. [`learning_tutor/rag_chain.py`](learning_tutor/rag_chain.py) builds the LangChain answer chain and applies citation-focused prompt rules.
-7. [`app/streamlit_app.py`](app/streamlit_app.py) runs the chat UI and displays retrieved source labels.
+```text
+Azure Blob Storage PDF
+        |
+        v
+Azure Document Intelligence layout extraction
+        |
+        v
+Cleaned page-level LangChain documents
+        |
+        v
+Chapter/page metadata enrichment and chunking
+        |
+        v
+Azure OpenAI embeddings
+        |
+        v
+Azure AI Search index
+        |
+        v
+Query rewrite -> hybrid/semantic retrieval -> grounded answer generation
+        |
+        v
+Streamlit chat UI or CLI response
+```
 
-## Tech Stack
+Azure AI Search is the main runtime retrieval backend. FAISS utilities remain in the package for local experimentation and older vector-store workflows.
 
-- [Python 3.12](https://www.python.org/)
-- [Streamlit](https://streamlit.io/) for the web chat UI
-- [LangChain](https://docs.langchain.com/) for prompts, runnables, document objects, and Azure OpenAI integrations
-- [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/) for chat completions and embeddings
-- [`text-embedding-3-small`](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models) as the default embedding deployment
-- [Azure AI Search](https://learn.microsoft.com/en-us/azure/search/) for production retrieval
-- [Azure Blob Storage](https://learn.microsoft.com/en-us/azure/storage/blobs/) for the source PDF
-- [Azure AI Document Intelligence](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/) for layout-aware PDF extraction
-- [Azure Identity](https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme) for Blob Storage authentication
-- [FAISS](https://github.com/facebookresearch/faiss) for local vector store support
-- [pypdf](https://pypdf.readthedocs.io/) through LangChain's PDF loader for fallback local loading helpers
-- [python-dotenv](https://pypi.org/project/python-dotenv/) for local `.env` loading
-- [Docker](https://docs.docker.com/) for containerized app runtime
-
-## Project Structure
+## Repository Layout
 
 ```text
 .
 ├── app/
-├── azure_data/
-├── data/
+│   └── streamlit_app.py
+├── infra/
+│   └── bootstrap.env.example
 ├── learning_tutor/
+│   ├── azure_openai.py
+│   ├── azure_search.py
+│   ├── data_pipeline.py
+│   ├── embedding.py
+│   ├── rag_chain.py
+│   ├── retrieval_pipeline.py
 │   └── services/
+│       └── indexing.py
 ├── scripts/
-├── src/
-├── storage/
-│   └── faiss_index/
+│   ├── bootstrap_azure.sh
+│   ├── build_index.py
+│   ├── chat_cli.py
+│   └── provision_azure.sh
 ├── tests/
-├── .dockerignore
+│   └── test_azure_migration.py
 ├── Dockerfile
-├── notebook.ipynb
 ├── pyproject.toml
-├── README.md
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
 
-[`app/`](app/) contains the Streamlit application.
-
-[`learning_tutor/`](learning_tutor/) contains the package used by the app and scripts.
-
-[`learning_tutor/services/`](learning_tutor/services/) contains index lifecycle helpers.
-
-[`scripts/`](scripts/) contains CLI entrypoints for indexing and one-off chat queries.
-
-[`data/`](data/) contains the local textbook PDF.
-
-[`azure_data/`](azure_data/) is the default download target for Blob Storage indexing.
-
-[`storage/faiss_index/`](storage/faiss_index/) is the local FAISS persistence path and is excluded from the Docker build context.
-
-[`src/`](src/) and [`tests/`](tests/) are present as development directories, but the packaged module is declared in [`pyproject.toml`](pyproject.toml) as `learning_tutor`.
-
-## Getting Started
-
-### Prerequisites
+## Tech Stack
 
 - Python 3.12
-- An Azure OpenAI resource with chat and embedding deployments
-- An Azure AI Document Intelligence resource
-- An Azure AI Search service and index name
-- An Azure Storage account with a PDF in Blob Storage
-- Azure credentials available through `DefaultAzureCredential`, such as `az login` for local development
+- Streamlit
+- LangChain
+- Azure OpenAI
+- Azure AI Search
+- Azure Blob Storage
+- Azure Document Intelligence
+- Azure Identity
+- FAISS
+- Docker
 
-### Install
+## Setup
+
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
@@ -97,113 +97,185 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Configure
+## Configuration
 
-Create a `.env` file in the repository root.
+Create a `.env` file in the repository root. Do not commit real API keys or service keys.
+
+The Streamlit app and CLI require:
 
 ```env
 AZURE_OPENAI_ENDPOINT=https://your-openai-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=your_azure_openai_api_key
-AZURE_OPENAI_CHAT_API_KEY=your_optional_separate_chat_key
+AZURE_OPENAI_API_KEY=your_openai_key
 AZURE_OPENAI_API_VERSION=2024-12-01-preview
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
-AZURE_OPENAI_EMBEDDING_BATCH_SIZE=16
-AZURE_OPENAI_EMBEDDING_RETRY_SECONDS=65
-AZURE_OPENAI_EMBEDDING_MAX_RETRIES=8
+
+AZURE_OPENAI_CHAT_ENDPOINT=https://your-chat-resource.openai.azure.com/
+AZURE_OPENAI_CHAT_API_KEY=your_chat_key
+AZURE_OPENAI_CHAT_API_VERSION=2024-12-01-preview
 AZURE_OPENAI_CHAT_DEPLOYMENT=your_chat_deployment
 AZURE_OPENAI_CHAT_MODEL=your_chat_model_name
 
 AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
-AZURE_SEARCH_API_KEY=your_azure_search_admin_or_query_key
+AZURE_SEARCH_API_KEY=your_search_key
 AZURE_SEARCH_INDEX_NAME=your_index_name
+AZURE_SEARCH_SEMANTIC_CONFIG_NAME=rag_ml_semantic_config
+```
 
+Index building also requires:
+
+```env
 AZURE_STORAGE_ACCOUNT_URL=https://yourstorageaccount.blob.core.windows.net
+AZURE_STORAGE_ACCOUNT_KEY=your_storage_account_key
 AZURE_STORAGE_CONTAINER=documents
-AZURE_STORAGE_BLOB_NAME=Hands_On_Machine_Learning_with_Scikit_Learn_and_TensorFlow.pdf
+AZURE_STORAGE_BLOB_NAME=ml_text_book.pdf
+AZURE_BLOB_DOWNLOAD_PATH=azure_data/ml_text_book.pdf
 
 AZURE_DOCUMENT_INTEL_ENDPOINT=https://your-document-intelligence-resource.cognitiveservices.azure.com/
 AZURE_DOCUMENT_INTEL_KEY=your_document_intelligence_key
-
-AZURE_SEARCH_SEMANTIC_CONFIG_NAME=rag_ml_semantic_config
-AZURE_BLOB_DOWNLOAD_PATH=azure_data/ml_text_book.pdf
 ```
 
-`AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_CHAT_API_KEY`, `AZURE_OPENAI_CHAT_MODEL`, `AZURE_OPENAI_EMBEDDING_BATCH_SIZE`, `AZURE_OPENAI_EMBEDDING_RETRY_SECONDS`, `AZURE_OPENAI_EMBEDDING_MAX_RETRIES`, `AZURE_SEARCH_SEMANTIC_CONFIG_NAME`, and `AZURE_BLOB_DOWNLOAD_PATH` are optional. The app and indexing script use defaults where available. The embedding retry settings keep index builds within lower Azure OpenAI rate limits. The code also accepts notebook-style aliases `AZURE_OPEN_AI_ENDPOINT`, `AZURE_OPEN_AI_KEY`, `AZURE_OPEN_AI_LLM_KEY`, and `AZURE_OPEN_AI_LLM_DEPLOYMENT`.
+Optional embedding controls:
 
-### Build The Azure Search Index
+```env
+AZURE_OPENAI_EMBEDDING_BATCH_SIZE=16
+AZURE_OPENAI_EMBEDDING_RETRY_SECONDS=65
+AZURE_OPENAI_EMBEDDING_MAX_RETRIES=8
+```
 
-Run this when the source PDF, chunking logic, or embedding model changes.
+Blob downloads use `AZURE_STORAGE_ACCOUNT_KEY` when set. Without it, the code falls back to `DefaultAzureCredential`, so local development may require:
+
+```bash
+az login
+```
+
+## Provision Azure Resources
+
+The repo includes scripts for creating the required Azure resources and writing the managed Azure block in `.env`.
+
+Copy the example config if you want to override resource names, SKUs, location, or model deployments:
+
+```bash
+cp infra/bootstrap.env.example infra/bootstrap.env
+```
+
+Then run:
+
+```bash
+bash scripts/bootstrap_azure.sh
+```
+
+The bootstrap flow creates or reuses:
+
+1. Resource group.
+2. Blob Storage account and container.
+3. Azure AI Search service.
+4. Azure Document Intelligence account.
+5. Azure OpenAI account.
+6. Embedding and chat deployments.
+7. Azure AI Search index.
+
+The script uploads the configured local PDF, writes Azure settings to `.env`, and runs the index build.
+
+## Build The Search Index
+
+Run the index build after changing the source PDF, chunking logic, embedding deployment, or Azure AI Search schema:
 
 ```bash
 python scripts/build_index.py
 ```
 
-### Run The Streamlit App
+The indexing job:
+
+1. Downloads the configured PDF from Azure Blob Storage.
+2. Extracts layout-aware text with Azure Document Intelligence.
+3. Removes non-content layout roles such as headers, footers, page numbers, and footnotes.
+4. Infers chapter and printed page labels.
+5. Splits pages into overlapping retrieval chunks.
+6. Embeds chunks with Azure OpenAI.
+7. Creates or updates the Azure AI Search index.
+8. Uploads chunk documents with vectors and citation metadata.
+
+## Run The Streamlit App
 
 ```bash
 streamlit run app/streamlit_app.py --server.port=8002
 ```
 
-Open the local URL printed by Streamlit and ask a question about the textbook.
+Open the local URL printed by Streamlit. The app validates Azure OpenAI and Azure AI Search settings at startup, connects to the configured search index, and stores chat history in Streamlit session state.
 
-### Run A CLI Query
+## Query From The CLI
 
 ```bash
 python scripts/chat_cli.py
 ```
 
-### Run With Docker
+The CLI connects to Azure AI Search, accepts one question, and prints the grounded answer.
+
+## Run With Docker
 
 ```bash
 docker build -t learning-tutor .
 docker run --rm -p 8002:8002 --env-file .env learning-tutor
 ```
 
-Then open `http://localhost:8002`.
+Then open:
 
-## Usage Example
+```text
+http://localhost:8002
+```
 
-Ask questions that can be answered from the indexed textbook:
+## Retrieval And Generation Behavior
+
+At query time, the Azure-backed flow:
+
+1. Rewrites follow-up questions into standalone search queries when chat history exists.
+2. Embeds the standalone query with the configured Azure OpenAI embedding deployment.
+3. Searches Azure AI Search with vector and text signals.
+4. Uses semantic ranking when enabled.
+5. Formats retrieved chunks with exact source labels.
+6. Generates an answer using only retrieved context.
+
+If retrieved context is insufficient, the prompt instructs the model to answer:
+
+```text
+I don't know based on the provided document.
+```
+
+## Example Questions
 
 ```text
 What is the difference between batch gradient descent and stochastic gradient descent?
 ```
 
-Follow-up questions can rely on the previous turn:
-
 ```text
-When would I choose the second one?
+When would I choose stochastic gradient descent?
 ```
 
-The retrieval pipeline rewrites the follow-up into a standalone query before searching.
+```text
+Why do random forests reduce overfitting compared with a single decision tree?
+```
+
+## Tests
+
+Run the unit tests:
+
+```bash
+python -m unittest discover -s tests
+```
+
+The current suite contains 10 tests covering:
+
+- Azure Blob configuration aliases.
+- Azure OpenAI configuration parsing for shared and separate chat/embedding resources.
+- Document Intelligence layout conversion.
+- Chapter and printed page label inference.
+- Chunk metadata preservation.
 
 ## Development Notes
 
-- The Streamlit app checks for Azure OpenAI and Azure AI Search settings before startup.
-- The indexing script additionally requires Azure Blob Storage and Azure Document Intelligence settings.
-- [`Dockerfile`](Dockerfile) exposes port `8002` and runs Streamlit on `0.0.0.0`.
-- [`.dockerignore`](.dockerignore) excludes `.env`, Python caches, notebook checkpoints, and `storage/faiss_index/`.
-- The local FAISS helper path is available in [`learning_tutor/services/indexing.py`](learning_tutor/services/indexing.py), but the current app entrypoint uses Azure AI Search.
-- No custom web fonts are referenced by the current code.
-
-## Getting Help
-
-- Start with the code paths listed in [How It Works](#how-it-works).
-- For Streamlit UI behavior, see the [Streamlit docs](https://docs.streamlit.io/).
-- For Azure Search indexing and vector search, see the [Azure AI Search docs](https://learn.microsoft.com/en-us/azure/search/).
-- For LangChain chain composition, see the [LangChain Python docs](https://docs.langchain.com/).
-- If this project is published on GitHub, open an issue with the failing command, expected behavior, actual behavior, and relevant environment details.
-
-## Maintainers And Contributing
-
-This repository is currently maintained by the project owner.
-
-Contributions should stay focused on the RAG pipeline, indexing flow, deployment setup, and developer experience. Before opening a pull request:
-
-1. Keep changes small and scoped.
-2. Update this README when setup, dependencies, ports, or environment variables change.
-3. Avoid committing secrets, generated caches, local vector indexes, or notebook checkpoints.
-4. Add or update tests when behavior changes.
-5. Run the relevant app, CLI, or indexing command locally before asking for review.
-
-There is no separate `CONTRIBUTING.md` or `LICENSE` file in the repository yet. Add those files before publishing the project for broader reuse.
+- `learning_tutor` is the packaged application module.
+- `notebook.ipynb` is exploratory and not part of the package.
+- `azure_data/` is the default local download path for the Azure Blob source PDF.
+- `storage/faiss_index/` is used only for local FAISS vector-store workflows.
+- `.env`, local bootstrap overrides, caches, virtual environments, and generated indexes should stay out of source control.
+- Keep secrets in local environment variables or deployment configuration, not in committed files.
